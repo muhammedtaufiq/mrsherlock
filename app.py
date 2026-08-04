@@ -52,7 +52,19 @@ if not df.empty:
     
     # Display the interactive dataframe
     # st.dataframe provides sorting, resizing, and scrolling out of the box
-    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+    # Display the interactive dataframe with column configuration
+    st.dataframe(
+        filtered_df, 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            # Tell Streamlit to treat this column as Markdown so the [Link](url) becomes clickable
+            "Reason Flagged": st.column_config.MarkdownColumn(
+                "Reason Flagged",
+                help="The reason Groq flagged this job. Click the link to view the original posting."
+            )
+        }
+    )
     
     # Add a quick summary metric
     st.sidebar.markdown("---")
