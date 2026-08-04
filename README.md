@@ -151,11 +151,11 @@ Add `GROQ_API_KEY` under:
 ---
 
 ## 🚀 Potential Improvements
-
+[](https://github.com/muhammedtaufiq/mrsherlock#-potential-improvements)
 This project is intentionally minimal, but it can be extended into a more robust compliance-monitoring platform.
 
 ### 1. Stronger ghost-job heuristics
-
+[](https://github.com/muhammedtaufiq/mrsherlock#1-stronger-ghost-job-heuristics)
 Add checks such as:
 
 - Recycler check: detecting the same role being deleted and reposted repeatedly
@@ -164,17 +164,20 @@ Add checks such as:
 - Zero-applicant or short-lived hiring patterns: matching unusual posting behavior against sudden closures or withdrawals
 
 ### 2. Asynchronous multi-page scraping
+[](https://github.com/muhammedtaufiq/mrsherlock#2-asynchronous-multi-page-scraping)
 
 - Replace `requests` with `httpx` or `aiohttp`
 - Add retry/backoff logic for transient API errors and rate limiting
 - Crawl more pages efficiently in parallel
 
 ### 3. Entity and business cross-referencing
+[](https://github.com/muhammedtaufiq/mrsherlock#3-entity-and-business-cross-referencing)
 
 - Use the employer UEN to enrich records using public business-register or government datasets
 - Group flagged listings by sector, company size, or industry to identify broader patterns
 
 ### 4. Dashboard and reporting
+[](https://github.com/muhammedtaufiq/mrsherlock#4-dashboard-and-reporting)
 
 - Build a lightweight Streamlit or Reflex dashboard for exploring flagged jobs
 - Export summaries as CSV or JSON for weekly compliance reporting

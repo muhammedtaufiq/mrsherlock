@@ -1,16 +1,53 @@
-import requests
-import sqlite3
-import json
 import os
+import sqlite3
+from datetime import datetime
+
+import requests
 from groq import Groq
-from datetime import datetime, timedelta
 
 # --- Configuration ---
 # The undocumented public API endpoint for MyCareersFuture job searches
 API_URL = "https://api.mycareersfuture.gov.sg/v2/jobs"
 
-# Set up your Groq client (requires GROQ_API_KEY environment variable)
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+def get_groq_client():
+    """Create the Groq client only when an API key is available."""
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        return None
+    return Groq(api_key=api_key)
+
+
+client = get_groq_client()
+
+
+def extract_salary_info(job):
+    """Normalise salary payloads from the MCF API into min/max floats."""
+    raw_salary = job.get("salary")
+    salary_info = {}
+
+    if isinstance(raw_salary, list) and raw_salary:
+        salary_info = raw_salary[0] if isinstance(raw_salary[0], dict) else {}
+    elif isinstance(raw_salary, dict):
+        salary_info = raw_salary
+
+    min_salary = salary_info.get("minimum")
+    max_salary = salary_info.get("maximum")
+
+    def to_float(value):
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    return to_float(min_salary), to_float(max_salary)
+
+
+def should_flag_duration(duration_days):
+    """Return True when a listing sits in the legal minimum FCF window."""
+    return 13 <= duration_days <= 15
 
 def fetch_jobs(page=0, limit=20):
     """Fetches a page of jobs from the MCF API."""
@@ -39,82 +76,70 @@ def store_jobs_and_analyze(jobs_data):
     cursor = conn.cursor()
 
     for job in jobs_data:
-        # 1. Extract the relevant fields
         job_id = job.get('uuid')
         title = job.get('title')
-        
-        # Employer info is nested
+
         employer_name = job.get('postedCompany', {}).get('name', 'Unknown')
         employer_uen = job.get('postedCompany', {}).get('uen', 'Unknown')
-        
+
         posted_date = job.get('metadata', {}).get('newPostingDate')
         expires_date = job.get('metadata', {}).get('expiryDate')
-        
-        # --- FIXED SALARY EXTRACTION ---
-        raw_salary = job.get('salary')
-        if isinstance(raw_salary, list) and len(raw_salary) > 0:
-            salary_info = raw_salary[0]
-        elif isinstance(raw_salary, dict):
-            salary_info = raw_salary
-        else:
-            salary_info = {}
-            
-        min_salary = salary_info.get('minimum')
-        max_salary = salary_info.get('maximum')
+        min_salary, max_salary = extract_salary_info(job)
 
-        # 2. Insert raw data into the database
         try:
             cursor.execute('''
-                INSERT OR IGNORE INTO jobs 
+                INSERT OR IGNORE INTO jobs
                 (job_id, title, employer_name, employer_uen, posted_date, expires_date, min_salary, max_salary)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (job_id, title, employer_name, employer_uen, posted_date, expires_date, min_salary, max_salary))
         except sqlite3.Error as e:
-             print(f"Database error for job {job_id}: {e}")
-             continue # Skip analysis if DB insert fails
+            print(f"Database error for job {job_id}: {e}")
+            continue
 
-        # 3. Quick heuristic check before sending to LLM (saves API tokens)
         if posted_date and expires_date:
             try:
                 posted = datetime.fromisoformat(posted_date.replace("Z", "+00:00"))
                 expires = datetime.fromisoformat(expires_date.replace("Z", "+00:00"))
                 duration_days = (expires - posted).days
-                
-                # FCF minimum is 14 days. We flag if the posting is scheduled to be up for exactly 14-15 days.
-                if 13 <= duration_days <= 15:
-                     analyze_with_groq(cursor, job_id, title, employer_name, employer_uen, duration_days)
+
+                if should_flag_duration(duration_days):
+                    analyze_with_groq(cursor, job_id, title, employer_name, employer_uen, duration_days)
             except ValueError:
-                pass # Handle date parsing errors
+                pass
 
     conn.commit()
     conn.close()
 
 def analyze_with_groq(cursor, job_id, title, employer, uen, duration):
     """Uses Groq (Llama 3) to analyze a suspicious job posting."""
-    
+    groq_client = get_groq_client()
+    if groq_client is None:
+        print(f"Skipping Groq analysis for {title}: GROQ_API_KEY is not set.")
+        return
+
     prompt = f"""
     Analyze this job posting from the Singapore job market for signs of a 'ghost job' posted merely to comply with the Fair Consideration Framework (FCF) 14-day requirement.
-    
+
     Job Title: {title}
     Employer: {employer} (UEN: {uen})
     Posting Duration: {duration} days
-    
+
     The FCF requires a minimum 14-day posting. This job is posted for exactly {duration} days.
     Given this data, is this highly suspicious? Reply ONLY with a short, 1-sentence reason why it is flagged, or reply 'SAFE' if you need more data (like salary or requirements) to make a call.
     """
 
     try:
-        chat_completion = client.chat.completions.create(
+        chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a Singapore HR compliance analyst."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama-3.1-8b-instant", # Using the fast, free Llama 3 8B model
-            temperature=0.1, # Keep it deterministic
+            model="llama-3.1-8b-instant",
+            temperature=0.1,
         )
-        
+
         result = chat_completion.choices[0].message.content.strip()
-        
+
         if result != "SAFE":
             print(f"FLAGGED [{uen}]: {title} - {result}")
             cursor.execute('INSERT INTO flags (job_id, flag_reason) VALUES (?, ?)', (job_id, result))
