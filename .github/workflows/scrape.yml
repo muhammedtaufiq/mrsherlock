@@ -1,0 +1,34 @@
+name: Daily MCF Ghost Job Audit
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs daily at midnight UTC
+  workflow_dispatch: # Allows you to run it manually from the GitHub UI
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests groq
+
+      - name: Run Scraper & AI Audit
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python scraper.py
+          
+      - name: Commit Updated DB
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git add mcf_jobs.db
+          git commit -m "Automated daily compliance check" || exit 0
+          git push
