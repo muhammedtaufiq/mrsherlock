@@ -15,6 +15,7 @@ def init_db():
         expires_date TEXT,
         min_salary REAL,
         max_salary REAL,
+        company_age_years REAL,  -- NEW COLUMN
         scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')

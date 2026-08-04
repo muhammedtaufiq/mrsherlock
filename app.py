@@ -14,7 +14,8 @@ def load_data():
         conn = sqlite3.connect('mcf_jobs.db')
         query = """
             SELECT 
-                j.employer_name AS 'Employer', 
+                j.employer_name AS 'Employer',
+                j.company_age_years AS 'Age (Yrs)', -- NEW COLUMN PULL 
                 j.title AS 'Job Title', 
                 f.flag_reason AS 'Reason Flagged', 
                 j.posted_date AS 'Posted Date', 
@@ -58,7 +59,11 @@ if not df.empty:
         use_container_width=True, 
         hide_index=True,
         column_config={
-            # Tell Streamlit to treat this column as Markdown so the [Link](url) becomes clickable
+            "Age (Yrs)": st.column_config.NumberColumn(
+            "Age (Yrs)",
+                help="The age of the company in years, based on ACRA registration data.",
+                format="%.1f"
+            ),
             "Reason Flagged": st.column_config.MarkdownColumn(
                 "Reason Flagged",
                 help="The reason Groq flagged this job. Click the link to view the original posting."

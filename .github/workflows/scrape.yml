@@ -2,8 +2,12 @@ name: Daily MCF Ghost Job Audit
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Runs daily at midnight UTC
-  workflow_dispatch: # Allows you to run it manually from the GitHub UI
+    # Runs daily at midnight UTC (which is 8:00 AM Singapore time)
+    - cron: '0 0 * * *' 
+  workflow_dispatch: # Allows you to manually click a button to run it
+
+permissions:
+  contents: write # Required so the action can push the updated DB back to the repo
 
 jobs:
   audit:
@@ -17,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests groq
+        run: pip install -r requirements.txt
 
       - name: Run Scraper & AI Audit
         env:
@@ -27,8 +31,9 @@ jobs:
           
       - name: Commit Updated DB
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action Bot"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add mcf_jobs.db
-          git commit -m "Automated daily compliance check" || exit 0
+          # The '|| echo' prevents the workflow from failing if no new jobs were found today
+          git commit -m "Automated daily compliance check" || echo "No changes to commit"
           git push
