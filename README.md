@@ -1,208 +1,132 @@
 # 🕵️‍♂️ MrSherlock: Singapore FCF "Ghost Job" Tracker
 
-MrSherlock is a lightweight compliance-auditing tool designed to detect potential "ghost jobs" on Singapore's MyCareersFuture (MCF) portal.
+MrSherlock is a lightweight Python-based compliance audit tool for Singapore’s MyCareersFuture (MCF) portal. It is designed to surface potential “ghost jobs” that may be posted only to satisfy the Fair Consideration Framework (FCF) requirement, which generally requires employers to advertise a role for at least 14 days before hiring foreign talent under an Employment Pass or S Pass.
 
-Under the Fair Consideration Framework (FCF), employers are generally required to advertise roles on MyCareersFuture for at least 14 days before applying for an Employment Pass (EP) or S Pass. MrSherlock automatically ingests job listings, checks their posting duration, applies rule-based heuristics, and uses fast LLM inference to flag listings that may have been posted only to satisfy compliance requirements.
+---
+
+## 🔍 What it does
+
+*   Queries the public MCF API for recent job listings
+*   Extracts key fields such as title, employer, UEN, salary, posting date, and expiry date
+*   Anonymizes employer names using SHA-256 hashing to protect corporate identities
+*   Calculates job duration from posting date to expiry date
+*   Applies a 14-Day heuristic to flag listings in the 13–15 day range (aligning with FCF minimums)
+*   Applies a Recycler heuristic to catch employers repeatedly posting the exact same role
+*   Uses Groq’s LLM for a second-stage risk assessment when a valid API key is configured
+*   Stores raw jobs and flagged results in a local SQLite database
+*   Visualizes flagged jobs via an interactive Streamlit web dashboard
 
 ---
 
 ## 🏗️ Architecture and Data Flow
 
 ```text
-[ MCF REST API ] ──> [ Python Scraper ] ──> [ 14-Day Heuristic Check ] ──(Suspicious)──> [ Groq LLM ]
-                                                       │                                      │
-                                                       └────────────> [ SQLite DB ] <──────┘
-```
+[ MCF REST API ] ──> [ Python Scraper ] ──> [ Heuristics Engine ] ──(Suspicious)──> [ Groq LLM ]
+                                                      │                                   │
+                                                      └────────> [ SQLite DB ] <──────────┘
+                                                                       │
+                                                                       v
+                                                           [ Streamlit Dashboard ]
+✅ Current implementation status
+The scraper logic has been hardened to avoid crashing when GROQ_API_KEY is missing
 
-The system follows a simple two-stage pipeline:
+Groq client initialization is now lazy and safe
 
-1. Direct API ingestion
-   - Queries the public MCF API at `https://api.mycareersfuture.gov.sg/v2/jobs`
-   - Pulls structured JSON payloads such as title, company name, UEN, salary ranges, posting date, and expiry date
+Salary parsing was normalized to handle different API payload structures reliably
 
-2. Stage 1: 14-day heuristic check
-   - Calculates the listing duration as:
+The FCF duration logic has been isolated into testable helper functions
 
-   $$
-   \text{Duration (days)} = \text{Expiry Date} - \text{Posting Date}
-   $$
+Recycler check implemented via SQL COUNT queries to track identical job titles by UEN
 
-   - Flags postings configured to remain active for roughly 13–15 days, which closely matches the FCF minimum requirement
+GitHub Actions workflow configured to run the scraper daily at midnight UTC
 
-3. Stage 2: LLM-based risk review
-   - Escalates suspicious listings to Groq's `llama-3.1-8b-instant` model
-   - Produces a short, human-readable risk explanation
-   - Groq has announced plans to deprecate `llama-3.1-8b-instant` on August 16, 2026; the recommended replacement is `openai/gpt-oss-20b`
+Streamlit dashboard integrated for interactive data exploration and deployed to the web
 
-4. Local persistence
-   - Stores raw jobs and flagged records in a local SQLite database: `mcf_jobs.db`
+📂 Files
+scraper.py: main scraper, heuristic engine, and AI analysis logic
 
----
+db_setup.py: SQLite schema setup
 
-## ⚡ Quickstart
+test_scraper.py: unit/regression tests
 
-### Prerequisites
+app.py: Streamlit dashboard UI
 
-- Python 3.11+
-- A Groq API key from [console.groq.com](https://console.groq.com/)
+requirements.txt: Python package dependencies for deployment
 
-### 1. Install dependencies
+mcf_jobs.db: generated local database
 
-```bash
-pip install requests groq
-```
+.github/workflows/scrape.yml: CI/CD pipeline for daily automation
 
-### 2. Initialize the database
+README.md: project documentation and setup notes
 
-```bash
+🧪 Verified
+Test command run successfully:
+
+Plaintext
+Result: 4 tests passed
+Regression tests validate:
+
+salary extraction across nested and dict payloads
+
+missing-value handling
+
+14-day compliance window detection
+
+⚡ Quickstart
+Prerequisites
+Python 3.11+
+
+A Groq API key from console.groq.com
+
+1. Install dependencies
+Bash
+pip install -r requirements.txt
+2. Initialize the database
+Bash
 python db_setup.py
-```
+3. Run the scraper
+Set your environment variable (never commit this to GitHub) and run the script:
 
-This creates the SQLite database and required tables for jobs and flags.
-
-### 3. Set your environment variable
-
-```bash
+Bash
 export GROQ_API_KEY="gsk_your_actual_api_key_here"
-```
-
-> Never commit API keys to GitHub. Keep them in your local environment or GitHub repository secrets.
-
-If the key is missing, the scraper will still run the heuristic checks and skip LLM review gracefully instead of crashing.
-
-### 4. Run the scraper
-
-```bash
 python scraper.py
-```
+4. Run the dashboard locally
+Bash
+streamlit run app.py
+☁️ Deployment & Automation
+Web Dashboard (Streamlit Community Cloud):
 
-The script fetches recent MCF listings, applies the 14-day heuristic, and sends suspicious postings for LLM review when a valid Groq API key is configured.
+Ensure your repository is pushed to GitHub.
 
-### 5. Run the test suite
+Go to share.streamlit.io and log in with your GitHub account.
+
+Click New app, select this repository, point it to app.py, and deploy.
+
+Daily Automation (GitHub Actions):
+The repository includes a workflow (scrape.yml) that runs every day at midnight UTC. To enable it:
+
+Go to your GitHub Repository -> Settings -> Secrets and variables -> Actions.
+
+Add a new repository secret named GROQ_API_KEY with your actual Groq key.
+
+🚀 Potential Improvements
+Salary Anomaly Detection: Add heuristics to catch unusual salary ranges that appear designed to deter local applicants or that are suspiciously narrow.
+
+Hyper-tailored requirements: Parse job requirement text for niche skills or language requirements unrelated to the core business.
+
+Asynchronous multi-page scraping: Replace requests with httpx to crawl multiple API pages in parallel.
+
+⚖️ Current project posture (Disclaimer)
+This is a minimal, functional prototype for compliance monitoring and research. It is not a definitive legal or compliance judgment engine; instead, it acts as a heuristic-driven signal generator and data-collection tool that can be expanded with stronger fraud-detection rules, broader scraping, and dashboard reporting.
+
+
+---
+
+### Terminal Commands (Git Push)
+
+Run these commands in your Codespaces terminal to stage, commit, and push this updated README to your repository:
 
 ```bash
-python -m unittest discover -s tests -v
-```
-
-This validates the core salary parsing and FCF-duration logic.
-
----
-
-## 📊 Querying Results
-
-You can inspect the results directly from SQLite.
-
-### View all flagged jobs
-
-```bash
-python -c "import sqlite3; conn = sqlite3.connect('mcf_jobs.db'); cursor = conn.cursor(); print(cursor.execute('SELECT j.title, j.employer_name, j.employer_uen, f.flag_reason FROM flags f JOIN jobs j ON f.job_id = j.job_id').fetchall()); conn.close()"
-```
-
-### Count flagged jobs by employer
-
-```bash
-python -c "import sqlite3; conn = sqlite3.connect('mcf_jobs.db'); cursor = conn.cursor(); print(cursor.execute('SELECT j.employer_name, COUNT(*) as flag_count FROM flags f JOIN jobs j ON f.job_id = j.job_id GROUP BY j.employer_name ORDER BY flag_count DESC').fetchall()); conn.close()"
-```
-
----
-
-## 🤖 Daily Automation with GitHub Actions
-
-You can run the audit automatically every day without paying for server hosting.
-
-### 1. Create the workflow
-
-Create `.github/workflows/scrape.yml` with:
-
-```yaml
-name: Daily MCF Ghost Job Audit
-
-on:
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
-
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install requests groq
-
-      - name: Run Scraper & AI Audit
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: |
-          python db_setup.py
-          python scraper.py
-
-      - name: Commit Updated DB
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action Bot"
-          git add mcf_jobs.db
-          git commit -m "Automated daily compliance check" || exit 0
-          git push
-```
-
-### 2. Add the secret
-
-Add `GROQ_API_KEY` under:
-
-- GitHub Repo → Settings → Secrets and variables → Actions → New repository secret
-
----
-
-## 🚀 Potential Improvements
-[](https://github.com/muhammedtaufiq/mrsherlock#-potential-improvements)
-This project is intentionally minimal, but it can be extended into a more robust compliance-monitoring platform.
-
-### 1. Stronger ghost-job heuristics
-[](https://github.com/muhammedtaufiq/mrsherlock#1-stronger-ghost-job-heuristics)
-Add checks such as:
-
-- Recycler check: detecting the same role being deleted and reposted repeatedly
-- Salary anomaly detection: unusual salary ranges that appear designed to deter local applicants
-- Hyper-tailored requirements: niche skills or language requirements unrelated to the core business
-- Zero-applicant or short-lived hiring patterns: matching unusual posting behavior against sudden closures or withdrawals
-
-### 2. Asynchronous multi-page scraping
-[](https://github.com/muhammedtaufiq/mrsherlock#2-asynchronous-multi-page-scraping)
-
-- Replace `requests` with `httpx` or `aiohttp`
-- Add retry/backoff logic for transient API errors and rate limiting
-- Crawl more pages efficiently in parallel
-
-### 3. Entity and business cross-referencing
-[](https://github.com/muhammedtaufiq/mrsherlock#3-entity-and-business-cross-referencing)
-
-- Use the employer UEN to enrich records using public business-register or government datasets
-- Group flagged listings by sector, company size, or industry to identify broader patterns
-
-### 4. Dashboard and reporting
-[](https://github.com/muhammedtaufiq/mrsherlock#4-dashboard-and-reporting)
-
-- Build a lightweight Streamlit or Reflex dashboard for exploring flagged jobs
-- Export summaries as CSV or JSON for weekly compliance reporting
-
----
-
-## ⚖️ Disclaimer
-
-This project is intended for educational, research, and data-analysis purposes. Results generated by heuristic checks and LLM review are risk indicators, not definitive proof of misconduct or legal non-compliance.
-
----
-
-## 📌 Project Files
-
-- `db_setup.py` — creates the SQLite schema
-- `scraper.py` — fetches job data, applies the FCF heuristic, and triggers LLM review when configured
-- `tests/test_scraper.py` — regression tests for salary parsing and duration checks
-- `mcf_jobs.db` — local database generated by the project
+git add README.md
+git commit -m "Update README to include detailed project posture, Streamlit, and Actions"
+git push
